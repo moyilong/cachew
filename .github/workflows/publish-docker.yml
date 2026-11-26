@@ -35,7 +35,8 @@ jobs:
           echo "${DOCKER_HUB_PUSH_TOKEN}" | \
           docker login \
             --username "${{secrets.ACR_USERNAME}}" \
-            --password-stdin registry.cn-hangzhou.aliyuncs.com
+            --password-stdin \
+            registry.cn-hangzhou.aliyuncs.com
 
       - name: Extract version metadata
         id: meta
