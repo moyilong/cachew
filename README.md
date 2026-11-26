@@ -88,6 +88,7 @@ Generic reverse-proxy caching for arbitrary HTTP hosts, with optional custom hea
 ```hcl
 host "https://ghcr.io" {
   aliases = ["docker.example.com"]
+  hosts   = ["ghcr-cache.example.com"]
   headers = {
     "Authorization": "Bearer QQ=="
   }
@@ -95,6 +96,10 @@ host "https://ghcr.io" {
 
 host "https://w3.org" {}
 ```
+
+The default route is path-based (`/ghcr.io/...`). Configure `hosts` when a client
+cannot use a path prefix; requests sent to those hostnames use the request path
+directly (`https://ghcr-cache.example.com/...`). Both routing modes share cache entries.
 
 Optional `fallback` blocks select trusted mirrors in declaration order. Cachew tries
 the next mirror only after a 429, a 5xx response, or a transport error. It never

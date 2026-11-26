@@ -90,6 +90,49 @@ func TestHostAliases(t *testing.T) {
 	assert.Equal(t, []string{"/artifact.tgz"}, paths)
 }
 
+func TestHostIndependentDomain(t *testing.T) {
+	var paths []string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("response"))
+	}))
+	defer backend.Close()
+
+	_, ctx := logging.Configure(context.Background(), logging.Config{Level: slog.LevelError})
+	memCache, err := cache.NewMemory(ctx, cache.MemoryConfig{MaxTTL: time.Hour})
+	assert.NoError(t, err)
+	defer memCache.Close()
+
+	mux := http.NewServeMux()
+	_, err = strategy.NewHost(ctx, strategy.HostConfig{Target: backend.URL, Hosts: []string{"packages.example"}}, memCache, mux, newTestSpools(t))
+	assert.NoError(t, err)
+
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "https://packages.example/artifact.tgz?version=2", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, []string{"/artifact.tgz"}, paths)
+
+	u, err := url.Parse(backend.URL)
+	assert.NoError(t, err)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodGet, "/"+u.Host+"/artifact.tgz?version=2", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, []string{"/artifact.tgz"}, paths)
+}
+
+func TestHostRejectsInvalidIndependentDomain(t *testing.T) {
+	_, ctx := logging.Configure(context.Background(), logging.Config{Level: slog.LevelError})
+	memCache, err := cache.NewMemory(ctx, cache.MemoryConfig{MaxTTL: time.Hour})
+	assert.NoError(t, err)
+	defer memCache.Close()
+
+	_, err = strategy.NewHost(ctx, strategy.HostConfig{Target: "https://example.com", Hosts: []string{"bad/name"}}, memCache, http.NewServeMux(), newTestSpools(t))
+	assert.Error(t, err)
+}
+
 func TestHostRejectsInvalidAlias(t *testing.T) {
 	_, ctx := logging.Configure(context.Background(), logging.Config{Level: slog.LevelError})
 	memCache, err := cache.NewMemory(ctx, cache.MemoryConfig{MaxTTL: time.Hour})

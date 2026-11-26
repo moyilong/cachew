@@ -4,8 +4,10 @@ import (
 	"context"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,10 +33,11 @@ func RegisterHost(r *Registry, spools spool.Provider) {
 
 // HostConfig represents the configuration for the Host strategy.
 //
-// A target of "https://github.com/" mounts the strategy under "/github.com".
+// A target of "https://github.com/" mounts the strategy under "/github.com"; Hosts adds direct hostname routes.
 type HostConfig struct {
 	Target    string               `hcl:"target,label" help:"The target URL to proxy requests to."`
 	Aliases   []string             `hcl:"aliases,optional" help:"Additional hostnames to serve as aliases for the target."`
+	Hosts     []string             `hcl:"hosts,optional" help:"Hostnames to serve this target on directly, without a path prefix."`
 	Headers   map[string]string    `hcl:"headers,optional" help:"Headers to add to upstream requests."`
 	Fallbacks []HostFallbackConfig `hcl:"fallback,block" help:"Ordered, trusted fallback upstreams."`
 }
@@ -51,6 +54,7 @@ type Host struct {
 	cache    cache.Cache
 	client   *http.Client
 	prefixes []string
+	hosts    []string
 	headers  map[string]string
 }
 
@@ -76,11 +80,24 @@ func NewHost(_ context.Context, config HostConfig, cache cache.Cache, mux Mux, s
 		seenPrefixes[aliasPrefix] = struct{}{}
 		prefixes = append(prefixes, aliasPrefix)
 	}
+	hosts := make([]string, 0, len(config.Hosts))
+	seenHosts := make(map[string]struct{}, len(config.Hosts))
+	for _, host := range config.Hosts {
+		if err := validateHostRoute(host); err != nil {
+			return nil, errors.Wrapf(err, "invalid host route %q", host)
+		}
+		if _, seen := seenHosts[host]; seen {
+			return nil, errors.Errorf("duplicate host route %q", host)
+		}
+		seenHosts[host] = struct{}{}
+		hosts = append(hosts, host)
+	}
 	h := &Host{
 		target:   u,
 		cache:    cache,
 		client:   &http.Client{},
 		prefixes: prefixes,
+		hosts:    hosts,
 		headers:  config.Headers,
 	}
 
@@ -123,18 +140,22 @@ func NewHost(_ context.Context, config HostConfig, cache cache.Cache, mux Mux, s
 	for _, routePrefix := range prefixes {
 		mux.Handle("GET "+routePrefix+"/", hdlr)
 	}
+	for _, host := range hosts {
+		mux.Handle("GET "+host+"/", hdlr)
+	}
 	return h, nil
 }
 
 func (d *Host) String() string { return "host:" + d.target.Host + d.target.Path }
 
 func (d *Host) buildTargetURL(r *http.Request) *url.URL {
-	// Strip the prefix from the request path
 	path := r.URL.Path
-	for _, prefix := range d.prefixes {
-		if len(path) >= len(prefix) && (len(path) == len(prefix) || path[len(prefix)] == '/') {
-			path = path[len(prefix):]
-			break
+	if !d.isHostBasedRequest(r) {
+		for _, prefix := range d.prefixes {
+			if len(path) >= len(prefix) && (len(path) == len(prefix) || path[len(prefix)] == '/') {
+				path = path[len(prefix):]
+				break
+			}
 		}
 	}
 	if path == "" {
@@ -143,8 +164,30 @@ func (d *Host) buildTargetURL(r *http.Request) *url.URL {
 
 	targetURL := *d.target
 	targetURL.Path = path
+	targetURL.RawPath = ""
 	targetURL.RawQuery = r.URL.RawQuery
 	return &targetURL
+}
+
+func (d *Host) isHostBasedRequest(r *http.Request) bool {
+	host := r.Host
+	if parsed, _, err := net.SplitHostPort(host); err == nil {
+		host = parsed
+	} else if strings.Count(host, ":") == 1 {
+		host, _, _ = strings.Cut(host, ":")
+	}
+	return slices.Contains(d.hosts, host)
+}
+
+func validateHostRoute(host string) error {
+	if host == "" {
+		return errors.New("must not be empty")
+	}
+	u, err := url.Parse("//" + host)
+	if err != nil || u.Host != host || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return errors.New("must be a hostname, optionally with a port")
+	}
+	return nil
 }
 
 type hostFallback struct {
