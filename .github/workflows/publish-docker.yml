@@ -34,7 +34,7 @@ jobs:
         run: |
           echo "${DOCKER_HUB_PUSH_TOKEN}" | \
           docker login \
-            --username "${{secrets.ACR_USERNAME}}" \
+            --username "${{ secrets.ACR_USERNAME }}" \
             --password-stdin \
             registry.cn-hangzhou.aliyuncs.com
 
@@ -50,7 +50,7 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/cachew
-            ${{ secrets.ACR_TAG }}
+            registry.cn-hangzhou.aliyuncs.com/zephyruse/cachew
           tags: |
             # For tags: v1.2.3 -> 1.2.3, 1.2, 1
             type=semver,pattern={{version}}
