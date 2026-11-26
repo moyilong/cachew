@@ -17,20 +17,20 @@ jobs:
       - run: goreleaser release --clean --fail-fast
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: homebrew-tap-token
-        with:
-          app-id: ${{ secrets.BLOCK_HOMEBREW_TAP_APP_ID }}
-          private-key: ${{ secrets.BLOCK_HOMEBREW_TAP_PRIVATE_KEY }}
-          owner: block
-          repositories: homebrew-tap
-      - name: Trigger Homebrew formula bump
-        env:
-          GITHUB_TOKEN: ${{ steps.homebrew-tap-token.outputs.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          gh workflow run bump-formula.yaml \
-            --repo block/homebrew-tap \
-            -f repo=block/cachew \
-            -f formula=cachew \
-            -f "tag=$TAG"
+      # - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      #   id: homebrew-tap-token
+      #   with:
+      #     app-id: ${{ secrets.BLOCK_HOMEBREW_TAP_APP_ID }}
+      #     private-key: ${{ secrets.BLOCK_HOMEBREW_TAP_PRIVATE_KEY }}
+      #     owner: block
+      #     repositories: homebrew-tap
+      # - name: Trigger Homebrew formula bump
+      #   env:
+      #     GITHUB_TOKEN: ${{ steps.homebrew-tap-token.outputs.token }}
+      #     TAG: ${{ github.ref_name }}
+      #   run: |
+      #     gh workflow run bump-formula.yaml \
+      #       --repo block/homebrew-tap \
+      #       -f repo=block/cachew \
+      #       -f formula=cachew \
+      #       -f "tag=$TAG"
