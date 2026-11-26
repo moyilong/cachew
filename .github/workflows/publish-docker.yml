@@ -28,11 +28,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log in to Docker Hub
+      - name: Log in to ACR
         env:
-          DOCKER_HUB_PUSH_TOKEN: ${{ secrets.DOCKER_HUB_PUSH_TOKEN }}
+          DOCKER_HUB_PUSH_TOKEN: ${{ secrets.ACR_PASSWORD }}
         run: |
-          echo "${DOCKER_HUB_PUSH_TOKEN}" | docker login --username "squareup" --password-stdin
+          echo "${DOCKER_HUB_PUSH_TOKEN}" | \
+          docker login \
+            --username "${{secrets.ACR_USERNAME}}" \
+            --password-stdin registry.cn-hangzhou.aliyuncs.com
 
       - name: Extract version metadata
         id: meta
@@ -46,7 +49,7 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/cachew
-            squareup/cachew
+            ${{ secrets.ACR_TAG }}
           tags: |
             # For tags: v1.2.3 -> 1.2.3, 1.2, 1
             type=semver,pattern={{version}}
