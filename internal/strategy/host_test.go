@@ -64,6 +64,42 @@ func TestHostCaching(t *testing.T) {
 	assert.Equal(t, 1, callCount, "second request should be served from cache")
 }
 
+func TestHostAliases(t *testing.T) {
+	var paths []string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("response"))
+	}))
+	defer backend.Close()
+
+	_, ctx := logging.Configure(context.Background(), logging.Config{Level: slog.LevelError})
+	memCache, err := cache.NewMemory(ctx, cache.MemoryConfig{MaxTTL: time.Hour})
+	assert.NoError(t, err)
+	defer memCache.Close()
+
+	mux := http.NewServeMux()
+	_, err = strategy.NewHost(ctx, strategy.HostConfig{Target: backend.URL, Aliases: []string{"packages.example"}}, memCache, mux, newTestSpools(t))
+	assert.NoError(t, err)
+
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/packages.example/artifact.tgz", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, []string{"/artifact.tgz"}, paths)
+}
+
+func TestHostRejectsInvalidAlias(t *testing.T) {
+	_, ctx := logging.Configure(context.Background(), logging.Config{Level: slog.LevelError})
+	memCache, err := cache.NewMemory(ctx, cache.MemoryConfig{MaxTTL: time.Hour})
+	assert.NoError(t, err)
+	defer memCache.Close()
+
+	_, err = strategy.NewHost(ctx, strategy.HostConfig{Target: "https://example.com", Aliases: []string{"bad/name"}}, memCache, http.NewServeMux(), newTestSpools(t))
+	assert.Error(t, err)
+}
+
 func TestHostNonOKStatus(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

@@ -34,6 +34,7 @@ func RegisterHost(r *Registry, spools spool.Provider) {
 // A target of "https://github.com/" mounts the strategy under "/github.com".
 type HostConfig struct {
 	Target    string               `hcl:"target,label" help:"The target URL to proxy requests to."`
+	Aliases   []string             `hcl:"aliases,optional" help:"Additional hostnames to serve as aliases for the target."`
 	Headers   map[string]string    `hcl:"headers,optional" help:"Headers to add to upstream requests."`
 	Fallbacks []HostFallbackConfig `hcl:"fallback,block" help:"Ordered, trusted fallback upstreams."`
 }
@@ -46,11 +47,11 @@ type HostFallbackConfig struct {
 
 // The Host [Strategy] forwards all GET requests to the specified host, caching the response payloads.
 type Host struct {
-	target  *url.URL
-	cache   cache.Cache
-	client  *http.Client
-	prefix  string
-	headers map[string]string
+	target   *url.URL
+	cache    cache.Cache
+	client   *http.Client
+	prefixes []string
+	headers  map[string]string
 }
 
 var _ Strategy = (*Host)(nil)
@@ -62,12 +63,25 @@ func NewHost(_ context.Context, config HostConfig, cache cache.Cache, mux Mux, s
 		return nil, errors.Errorf("invalid target URL: %w", err)
 	}
 	prefix := "/" + u.Host + u.EscapedPath()
+	prefixes := []string{prefix}
+	seenPrefixes := map[string]struct{}{prefix: {}}
+	for _, alias := range config.Aliases {
+		if err := httputil.ValidatePathSegment(alias); err != nil {
+			return nil, errors.Wrapf(err, "invalid host alias %q", alias)
+		}
+		aliasPrefix := "/" + alias + u.EscapedPath()
+		if _, seen := seenPrefixes[aliasPrefix]; seen {
+			return nil, errors.Errorf("duplicate host alias %q", alias)
+		}
+		seenPrefixes[aliasPrefix] = struct{}{}
+		prefixes = append(prefixes, aliasPrefix)
+	}
 	h := &Host{
-		target:  u,
-		cache:   cache,
-		client:  &http.Client{},
-		prefix:  prefix,
-		headers: config.Headers,
+		target:   u,
+		cache:    cache,
+		client:   &http.Client{},
+		prefixes: prefixes,
+		headers:  config.Headers,
 	}
 
 	if len(config.Fallbacks) > 0 {
@@ -106,7 +120,9 @@ func NewHost(_ context.Context, config HostConfig, cache cache.Cache, mux Mux, s
 			return req, nil
 		})
 
-	mux.Handle("GET "+prefix+"/", hdlr)
+	for _, routePrefix := range prefixes {
+		mux.Handle("GET "+routePrefix+"/", hdlr)
+	}
 	return h, nil
 }
 
@@ -115,8 +131,11 @@ func (d *Host) String() string { return "host:" + d.target.Host + d.target.Path 
 func (d *Host) buildTargetURL(r *http.Request) *url.URL {
 	// Strip the prefix from the request path
 	path := r.URL.Path
-	if len(path) >= len(d.prefix) {
-		path = path[len(d.prefix):]
+	for _, prefix := range d.prefixes {
+		if len(path) >= len(prefix) && (len(path) == len(prefix) || path[len(prefix)] == '/') {
+			path = path[len(prefix):]
+			break
+		}
 	}
 	if path == "" {
 		path = "/"

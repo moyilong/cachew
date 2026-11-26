@@ -87,6 +87,7 @@ Generic reverse-proxy caching for arbitrary HTTP hosts, with optional custom hea
 
 ```hcl
 host "https://ghcr.io" {
+  aliases = ["docker.example.com"]
   headers = {
     "Authorization": "Bearer QQ=="
   }
