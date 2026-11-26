@@ -66,6 +66,10 @@ strategy hermit { }
 
 strategy proxy { }
 
+strategy nuget {
+  upstream = "https://api.nuget.org/v3/index.json"
+}
+
 cache disk {
   limit-mb = 250000
   max-ttl = "8h"
