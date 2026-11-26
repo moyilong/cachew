@@ -131,6 +131,45 @@ Caching proxy for clients that use absolute-form HTTP requests (e.g. Android `sd
 proxy {}
 ```
 
+### NuGet
+
+Caches public NuGet v3 feeds, including package downloads, registration, search,
+repository signatures and vulnerability metadata. Absolute resource links in JSON
+responses are rewritten to point through cachew.
+
+```hcl
+strategy nuget {
+  upstream = "https://api.nuget.org/v3/index.json"
+  public-url = "https://cachew.example.com/nuget"
+  metadata-ttl = "5m"
+}
+```
+
+`upstream` defaults to nuget.org, and `public-url` defaults to the server's `url`
+with `/nuget` appended. Set it to the external HTTPS address when running behind
+a reverse proxy. Metadata uses `metadata-ttl`; packages and manifests use the cache
+backend's default TTL. The backend's maximum TTL still applies.
+
+Configure the source in `NuGet.Config`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="cachew" value="https://cachew.example.com/nuget/index.json" protocolVersion="3" />
+  </packageSources>
+</configuration>
+```
+
+Then run `dotnet restore`. This strategy supports anonymous, read-only feeds;
+client credentials are not forwarded and publish endpoints are omitted from the
+service index. The official feed can use HTTPS resources on nuget.org subdomains
+and its `nuget.azure.cn` redirect target.
+Custom feeds trust their upstream origin; add any other resource or redirect
+origins explicitly, for example `resource-origins = ["https://cdn.example.com"]`.
+Only trusted resource URLs are rewritten. NuGet v2 feeds are not supported.
+
 ### OCI
 
 Read-only pull-through cache for Docker/OCI image registries, with one block per registry. Pushes are rejected.
