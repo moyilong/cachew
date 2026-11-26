@@ -1,7 +1,5 @@
 # Artifactory caching proxy strategy
-# strategy artifactory "example.jfrog.io" {
-#   target = "https://example.jfrog.io"
-# }
+# strategy artifactory "https://example.jfrog.io" {}
 
 state = "./state"
 url = "http://127.0.0.1:8080"
@@ -30,7 +28,7 @@ opa {
 # github-app {
 #   app-id = "app-id-value"
 #   private-key-path = "private-key-path-value"
-#   installations = { "myorg" : "installation-id" }
+#   fallback-org = "myorg"
 # }
 
 metrics {}

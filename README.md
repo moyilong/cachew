@@ -2,6 +2,14 @@
 
 Cachew (pronounced "cashew") is a tiered, protocol-aware, caching HTTP proxy for software engineering infrastructure. It understands higher-level protocols (Git, Docker, Go modules, etc.) and makes smarter caching decisions than a naive HTTP proxy.
 
+`cachewd --config cachew.hcl` loads HCL configuration. Strategies use `strategy <name> { ... }`,
+cache backends use `cache <name> { ... }`, and every configuration requires at least one cache
+backend and exactly one `metadata <name> { ... }` block. Global settings such as `log`,
+`metrics`, `s3`, and `github-app` remain top-level blocks.
+
+The examples below are configuration fragments. See the [full configuration example](#full-configuration-example)
+for a complete file, or run `cachewd --schema` to inspect the schema for your version.
+
 ## Strategies
 
 ### Git
@@ -25,7 +33,7 @@ cachew git restore https://github.com/org/repo ./repo
 ```
 
 ```hcl
-git {
+strategy git {
   snapshot-interval = "1h"
   repack-interval   = "1h"
 }
@@ -35,10 +43,10 @@ git {
 
 Caches public and private GitHub release assets. Private orgs use a token or GitHub App for authentication.
 
-**URL pattern:** `/github-releases/{owner}/{repo}/{tag}/{asset}`
+**URL pattern:** `/github.com/{owner}/{repo}/releases/download/{tag}/{asset}`
 
 ```hcl
-github-releases {
+strategy github-releases {
   token        = "${GITHUB_TOKEN}"
   private-orgs = ["myorg"]
 }
@@ -55,7 +63,7 @@ export GOPROXY=http://cachew.example.com/gomod,direct
 ```
 
 ```hcl
-gomod {
+strategy gomod {
   proxy         = "https://proxy.golang.org"
   private-paths = ["github.com/myorg/*"]
 }
@@ -68,7 +76,7 @@ Caches [Hermit](https://cashapp.github.io/hermit/) package downloads. GitHub rel
 **URL pattern:** `/hermit/{host}/{path...}`
 
 ```hcl
-hermit {}
+strategy hermit {}
 ```
 
 ### Artifactory
@@ -76,8 +84,8 @@ hermit {}
 Caches artifacts from JFrog Artifactory with host-based or path-based routing.
 
 ```hcl
-artifactory "example.jfrog.io" {
-  target = "https://example.jfrog.io"
+strategy artifactory "https://example.jfrog.io" {
+  hosts = ["artifacts.cachew.example.com"]
 }
 ```
 
@@ -86,7 +94,7 @@ artifactory "example.jfrog.io" {
 Generic reverse-proxy caching for arbitrary HTTP hosts, with optional custom headers.
 
 ```hcl
-host "https://ghcr.io" {
+strategy host "https://ghcr.io" {
   aliases = ["docker.example.com"]
   hosts   = ["ghcr-cache.example.com"]
   headers = {
@@ -94,7 +102,7 @@ host "https://ghcr.io" {
   }
 }
 
-host "https://w3.org" {}
+strategy host "https://w3.org" {}
 ```
 
 The default route is path-based (`/ghcr.io/...`). Configure `hosts` when a client
@@ -107,7 +115,7 @@ retries a 404 against a mirror: the primary is authoritative and mirrors can lag
 Cancellation stops retries. Failures after response streaming starts cannot retry.
 
 ```hcl
-host "https://packages.example.com" {
+strategy host "https://packages.example.com" {
   fallback "https://mirror.example.com/archive" {
     path-prefix = "/releases"
   }
@@ -128,7 +136,7 @@ served them. Non-200 and incomplete responses are not cached.
 Caching proxy for clients that use absolute-form HTTP requests (e.g. Android `sdkmanager --proxy_host`).
 
 ```hcl
-proxy {}
+strategy proxy {}
 ```
 
 ### NuGet
@@ -177,7 +185,7 @@ Read-only pull-through cache for Docker/OCI image registries, with one block per
 **URL patterns:** `/oci/{registry}/v2/...`, and `/v2/...` on each of `hosts`.
 
 ```hcl
-oci "docker.io" {
+strategy oci "docker.io" {
   upstream = "https://registry-1.docker.io"
   hosts    = ["docker.cachew.example.com"]
   rewrite "^([^/]+)$" { replacement = "library/$1" }
@@ -219,7 +227,7 @@ copies before falling through to the authoritative tier.
 In-memory LRU cache.
 
 ```hcl
-memory {
+cache memory {
   limit-mb = 1024   # default
   max-ttl  = "1h"   # default
 }
@@ -230,7 +238,7 @@ memory {
 On-disk LRU cache with TTL-based eviction.
 
 ```hcl
-disk {
+cache disk {
   limit-mb = 250000
   max-ttl  = "8h"
 }
@@ -242,9 +250,35 @@ S3-compatible object storage (AWS S3, MinIO, etc.).
 
 ```hcl
 s3 {
-  bucket   = "my-cache-bucket"
   endpoint = "s3.amazonaws.com"
   region   = "us-east-1"
+}
+
+cache s3 {
+  bucket = "my-cache-bucket"
+}
+```
+
+The global `s3` block configures the shared connection. `cache s3` selects the
+object bucket and cache options; AWS credentials come from the standard AWS
+credential chain.
+
+## Metadata Backends
+
+Configure exactly one metadata backend, separately from the object cache.
+For a single instance, use in-memory metadata:
+
+```hcl
+metadata memory {}
+```
+
+For replicas that need shared metadata, use S3 with the global `s3` connection
+settings shown above. The bucket must already exist:
+
+```hcl
+metadata s3 {
+  bucket = "my-cache-bucket"
+  sync-interval = "15s"
 }
 ```
 
@@ -331,12 +365,13 @@ For private Git repositories and GitHub release assets, configure a GitHub App:
 github-app {
   app-id           = "12345"
   private-key-path = "./github-app.pem"
-  installations    = { "myorg": "67890" }
+  fallback-org     = "myorg"
 }
 ```
 
 Each App lists its installations via `GET /app/installations` at startup and every five minutes. Orgs matching no
-installation (case-insensitively) use the `fallback-org` token without further API calls.
+installation (case-insensitively) use the optional `fallback-org` token without further API calls.
+The old `installations` map is deprecated and no longer used for discovery.
 
 ## CLI
 
@@ -404,7 +439,7 @@ the primary API budget, but can count toward GitHub's secondary limits.
 
 ### Artifact cache metrics
 
-Generic artifact handlers (host, Artifactory, Hermit, HTTP proxy, OCI blobs and manifests, and GitHub release downloads) export:
+Generic artifact handlers (host, Artifactory, Hermit, HTTP proxy, NuGet, OCI blobs and manifests, and GitHub release downloads) export:
 
 | OpenTelemetry instrument | Type | Extra labels |
 | --- | --- | --- |
@@ -425,6 +460,10 @@ Use `cachew.cache.result` and `cachew.cache.source` to compare local/shared hits
 
 ## Full Configuration Example
 
+This example enables public feeds with a disk cache and in-memory metadata.
+Set `url` to the address clients use; it also supplies NuGet's default `public-url`.
+For private sources, add the credentials described in the sections above.
+
 ```hcl
 state = "./state"
 bind  = "0.0.0.0:8080"
@@ -439,45 +478,45 @@ opa {
     package cachew.authz
     default allow := false
     allow if startswith(input.remote_addr, "127.0.0.1:")
+    allow if not input.path[0] in {"api", "admin"}
   EOF
 }
 
 metrics {}
 
-github-app {
-  app-id           = "12345"
-  private-key-path = "./github-app.pem"
-}
-
 git-clone {}
 
-git {
+strategy git {
   snapshot-interval = "1h"
   repack-interval   = "1h"
 }
 
-github-releases {
-  token        = "${GITHUB_TOKEN}"
-  private-orgs = ["myorg"]
+strategy github-releases {
+  private-orgs = []
 }
 
-gomod {
-  proxy         = "https://proxy.golang.org"
-  private-paths = ["github.com/myorg/*"]
+strategy gomod {
+  proxy = "https://proxy.golang.org"
 }
 
-hermit {}
+strategy hermit {}
 
-host "https://ghcr.io" {
-  headers = {
-    "Authorization": "Bearer ${GHCR_TOKEN}"
-  }
+strategy host "https://w3.org" {}
+
+strategy proxy {}
+
+strategy nuget {}
+
+strategy oci "docker.io" {
+  upstream = "https://registry-1.docker.io"
+  hosts = ["docker.cachew.example.com"]
+  rewrite "^([^/]+)$" { replacement = "library/$1" }
 }
 
-disk {
+cache disk {
   limit-mb = 250000
   max-ttl  = "8h"
 }
 
-proxy {}
+metadata memory {}
 ```
