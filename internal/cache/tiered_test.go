@@ -1,3 +1,5 @@
+//go:build integration
+
 package cache_test
 
 import (
@@ -52,10 +54,6 @@ func newMetadataStore(ctx context.Context) *metadatadb.Store {
 
 func tieredETags(store *metadatadb.Store, namespace cache.Namespace) *metadatadb.Map[cache.Key, string] {
 	return metadatadb.NewMap[cache.Key, string](store.Namespace(string(namespace)), "cache-etags")
-}
-
-func newTiered(ctx context.Context, caches ...cache.Cache) cache.Cache {
-	return cache.MaybeNewTiered(ctx, caches, newMetadataStore(ctx))
 }
 
 type failingCache struct {

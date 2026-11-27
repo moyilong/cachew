@@ -22,6 +22,22 @@ jobs:
       - uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1
       - name: Run tests
         run: just test
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1
+      - name: Run Docker-backed protocol tests
+        run: just test-integration
+      - name: Collect Docker logs
+        if: failure()
+        run: |
+          docker ps -a --no-trunc
+          docker logs minio-test 2>&1 || true
   lint:
     name: Lint
     runs-on: ubuntu-latest

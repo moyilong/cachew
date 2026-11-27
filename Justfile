@@ -16,9 +16,13 @@ GOOS := env("GOOS", `go env GOOS`)
 _help:
     @just -l
 
-# Run tests
+# Run unit tests
 test:
-    gotestsum --hide-summary skipped --format-hide-empty-pkg ${CI:+--format=github-actions} ./... ${CI:+--tags=integration} -race -timeout 180s
+    gotestsum --hide-summary skipped --format-hide-empty-pkg ${CI:+--format=github-actions} ./... -race -timeout 180s
+
+# Run tests that need Docker-backed services or external protocol tools
+test-integration:
+    gotestsum --hide-summary skipped --format-hide-empty-pkg ${CI:+--format=github-actions} ./... --tags=integration -race -timeout 180s
 
 # Lint code
 lint:

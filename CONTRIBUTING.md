@@ -21,10 +21,15 @@ just docker run debug       # Run with debug logging
 just build              # Build for current platform
 just build-all          # Build all platforms
 just build GOOS=linux GOARCH=amd64 # Build for linux/amd64
-just test               # Run tests
+just test               # Run unit tests
+just test-integration   # Run Docker-backed Git, OCI, and S3 tests
 just lint               # Lint code
 just fmt                # Format code
 ```
+
+The integration suite needs a Linux Docker engine. It starts its own pinned OCI registry image and MinIO container, so
+the same command runs locally and in the GitHub Actions integration job. NuGet protocol coverage uses deterministic
+HTTP fixtures and runs in both suites.
 
 ## Docker
 
